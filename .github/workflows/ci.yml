@@ -8,7 +8,7 @@ on:
 
 jobs:
   check:
-    name: Lint, Typecheck & Build
+    name: Lint & Smoke test
     runs-on: ubuntu-latest
 
     steps:
@@ -20,17 +20,17 @@ jobs:
         with:
           bun-version: latest
 
-      - name: Copy default config
-        run: cp config/config.example.ts config/config.ts
+      - name: Create local config
+        run: make setup
 
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
+      - name: Biome lint
+        run: make lint
 
-      - name: Run Biome Lint
-        run: bun run lint
-
-      - name: Typecheck TypeScript
-        run: bun run tsc
-
-      - name: Build Application
-        run: bun run build
+      - name: Boot server and hit the pages
+        run: |
+          # No SurrealDB in CI: the server must still serve from memory.
+          PORT=3010 bun src/server/index.js &
+          for i in $(seq 1 30); do curl -sf localhost:3010/ >/dev/null && break; sleep 1; done
+          for path in / /privacidade /css/aero.css /js/app.js /api/states "/ui/state?uf=ba"; do
+            curl -sf -o /dev/null "localhost:3010$path" || { echo "FAIL $path"; exit 1; }
+          done

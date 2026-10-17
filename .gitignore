@@ -1,18 +1,5 @@
-# Dependencies
-node_modules
-.bun
-
-# Build outputs
-dist
-out
-*.tgz
-
-# Database & local storage (embedded SurrealDB)
+# Database & local storage (SurrealKV files)
 data/
-*.db
-*.wal
-*.manifest
-LOCK
 
 # Environment variables
 .env
@@ -22,7 +9,7 @@ LOCK
 .env.test
 
 # Local configuration overrides
-config/config.ts
+config/config.js
 
 # Code coverage & tests
 coverage
@@ -31,21 +18,15 @@ coverage
 # Logs
 logs
 *.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# Caches & build info
-.cache
-.eslintcache
-*.tsbuildinfo
 
 # IDE & Editor files
 .idea
 .claude
+.playwright-mcp
 *.swp
 *.swo
 
 # OS files
 .DS_Store
 Thumbs.db
+CLAUDE.local.md

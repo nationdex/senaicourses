@@ -7,7 +7,7 @@
 	},
 	"files": {
 		"ignoreUnknown": false,
-		"includes": ["src/**", "config/**", "scripts/**", "build.ts", "tailwind.config.ts"]
+		"includes": ["src/**", "config/**", "scripts/**", "public/js/**"]
 	},
 	"formatter": {
 		"enabled": true,
@@ -52,10 +52,6 @@
 		}
 	},
 	"css": {
-		"parser": {
-			"cssModules": false,
-			"tailwindDirectives": true
-		},
 		"formatter": {
 			"enabled": true,
 			"indentStyle": "tab"
@@ -81,7 +77,7 @@
 	},
 	"overrides": [
 		{
-			"includes": ["build.ts", "scripts/**", "src/index.ts", "src/db.ts", "src/adapters/**"],
+			"includes": ["scripts/**", "src/server/**", "src/db/**", "src/adapters/**"],
 			"linter": {
 				"rules": {
 					"suspicious": {
@@ -89,29 +85,6 @@
 					},
 					"style": {
 						"useNamingConvention": "off"
-					}
-				}
-			}
-		},
-		{
-			"includes": ["tailwind.config.ts"],
-			"linter": {
-				"rules": {
-					"style": {
-						"useNamingConvention": "off"
-					}
-				}
-			}
-		},
-		{
-			"includes": ["src/index.html"],
-			"linter": {
-				"rules": {
-					"style": {
-						"useNamingConvention": "off"
-					},
-					"complexity": {
-						"noArguments": "off"
 					}
 				}
 			}
