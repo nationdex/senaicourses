@@ -7,30 +7,42 @@ on:
     branches: [main, master]
 
 jobs:
-  check:
-    name: Lint & Smoke test
+  smoke:
+    name: Load SurrealQL & smoke test
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
-      - name: Create local config
-        run: make setup
-
-      - name: Biome lint
-        run: make lint
-
-      - name: Boot server and hit the pages
+      - name: No forbidden stack files
         run: |
-          # No SurrealDB in CI: the server must still serve from memory.
-          PORT=3010 bun src/server/index.js &
-          for i in $(seq 1 30); do curl -sf localhost:3010/ >/dev/null && break; sleep 1; done
-          for path in / /privacidade /css/aero.css /js/app.js /api/states "/ui/state?uf=ba"; do
-            curl -sf -o /dev/null "localhost:3010$path" || { echo "FAIL $path"; exit 1; }
-          done
+          if git ls-files | grep -E '(^|/)(package\.json|bun\.lockb?|package-lock\.json|tsconfig\.json)$|\.(js|ts|tsx|jsx|mjs|cjs)$'; then
+            echo "forbidden Node/JS/TS files are tracked" >&2; exit 1
+          fi
+
+      - name: Start SurrealDB (Docker)
+        run: |
+          docker run -d --name senai-surreal -p 127.0.0.1:8000:8000 \
+            -v "$PWD/app/assets:/assets:ro" -e SURREAL_BUCKET_FOLDER_ALLOWLIST=/assets \
+            surrealdb/surrealdb:latest start --user root --pass root --bind 0.0.0.0:8000 \
+            --allow-net --allow-experimental files memory
+          for i in $(seq 1 60); do curl -sf http://127.0.0.1:8000/health >/dev/null && break; sleep 1; done
+          curl -sf http://127.0.0.1:8000/health
+
+      - name: Load schema, functions, UI, API and seed
+        run: app/load.sh cursos
+
+      - name: Smoke checks
+        run: |
+          B=http://127.0.0.1:8000/api/senai/cursos
+          curl -sf "$B/health" | grep -q '"ok":true'
+          test "$(curl -s -o /dev/null -w '%{http_code}' "$B/home")" = 200
+          curl -sf "$B/home" | grep -qi 'SENAI'
+          test "$(curl -s -o /dev/null -w '%{http_code}' "$B/privacidade")" = 200
+          test "$(curl -s -o /dev/null -w '%{http_code}' "$B/assets/senai.svg")" = 200
+          test "$(curl -s -o /dev/null -w '%{http_code}' "$B/assets/flags/sp.png")" = 200
+          test "$(curl -s -o /dev/null -w '%{http_code}' "$B/assets/flags/nope.png")" = 404
+          test "$(curl -s -o /dev/null -w '%{http_code}' "$B/crawl-status")" = 403
+          curl -sf -u root:root -X POST http://127.0.0.1:8000/sql -H 'Accept: application/json' \
+            -H 'surreal-ns: senai' -H 'surreal-db: cursos' --data-binary 'SELECT count() FROM state GROUP ALL' \
+            | grep -q '"count":27'

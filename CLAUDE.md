@@ -2,52 +2,48 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Stack
+## Stack — HARD CONSTRAINTS (set by the owner; do not "improve" on them)
 
-HTMX + Alpine.js + UnoCSS in the browser, plain ES-module JavaScript on Bun, SurrealDB (SurrealKV engine) queried with SurrealQL. **No `package.json`, no `node_modules`, no bundler, no TypeScript** — do not add any. Browser libraries load from CDNs pinned in `src/views/layout.js` and `public/js/{uno,cursors}.js`.
+**Allowed:** HTMX, Alpine.js, UnoCSS, SurrealQL, SurrealDB, SurrealKV. Nothing else in the project.
+
+**Forbidden:** `package.json` (or any lockfile / `node_modules`), Bun, Node.js, npm/npx, TypeScript, React, Tailwind, and standalone JavaScript files with application logic. Behavior in the browser is Alpine (`x-data` inline in the markup) + htmx attributes only; the server side is SurrealQL running inside SurrealDB.
+
+**Target architecture (decided, see "Migration status"):** `surreal start` is the only server process. Pages and htmx fragments are `DEFINE API` endpoints (GA since SurrealDB 3.0) that return HTML built by `fn::ui::*` SurrealQL functions; scrapers are SurrealQL using `http::get` (`--allow-net` limited to the SENAI hosts); storage is SurrealKV. Browser libraries load from CDNs via `<script>` tags in the SurrealQL-rendered layout.
+
+**Migration status — read before touching code:** the checked-in server under `src/server/`, `src/db/*.js`, `src/adapters/*.js`, `public/js/app.js`, the `Makefile` and the Biome setup are the OLD Bun/JS implementation and violate the constraints above. They stay only until the SurrealQL replacement reaches parity; do not extend them with new features — port instead.
 
 ## Commands
 
-- `make dev` — server on http://localhost:3010 (`bun --watch`; creates `config/config.js` from `config/config.example.js` on first run). `make start` — production.
-- `make lint` (what CI runs) / `make check` (autofix). Biome runs via `bunx @biomejs/biome@2.5.11`; the version is pinned in the Makefile, keep it matching `biome.json`'s `$schema`.
-- SurrealDB needs the `surreal` binary on `$PATH` (https://surrealdb.com/install). The server spawns it itself; without it the site runs from memory only and logs `[db] sem persistência`.
+- `app/run.sh` — start SurrealDB (the `surreal` binary if on PATH, else the `senai-surreal` Docker container), load every `.surql` into database `cursos`, seed, and write the crawl secret (`app/.crawl-key`, git-ignored). `app/run.sh --load` reloads into a running server.
+- `app/load.sh <db> [file ...]` — curl-only loader; prints every statement error and parse error.
+- `app/crawl.sh [uf ...]` — drives the scrapers (see "Crawling"). A full cold cycle takes ~35-40 min (`CRAWL_BUDGET_S` raises the budget).
+- Site: `http://127.0.0.1:8000/api/senai/cursos/home`. Ad-hoc queries: `curl -s -u root:root -X POST http://127.0.0.1:8000/sql -H 'Accept: application/json' -H 'surreal-ns: senai' -H 'surreal-db: cursos' --data-binary "<SurrealQL>"`.
 
 ## Testing
 
-No automated test suite. Verify by hitting endpoints and loading the page:
-
-- JSON: `GET /api/units?uf=sp&area=tecnologia-da-informacao`, `/api/courses/all?uf=sp&unit=403`.
-- Fragments: `GET /ui/state?uf=mg`, `/ui/areas?uf=mg`, `/ui/units?uf=mg&area=…`, `/ui/content?uf=…&area=…&unit=…`. Each returns the target's HTML plus `hx-swap-oob` blocks.
-- UI changes: load the page in a real browser, desktop + mobile width, check the console for errors, and walk the chain state → área → unit → refresh. A cold state can take a minute (catalog scrape).
-- Server code changes need a restart if you ran `bun` without `--watch`. Edits to `public/` are served `no-cache` in dev, so a reload is enough.
+No automated suite. CI (`.github/workflows/ci.yml`) starts the SurrealDB image, runs `app/load.sh`, and curls health, home, assets and the guarded routes. Locally: load, crawl one or two states, open `/home` in a real browser at 360 and 1280 px and check the console. Reload `_common.surql` only while no crawl is running.
 
 ## Architecture
 
-One Bun process (`src/server/index.js`) serves pages, htmx fragments, the JSON API and static files from `public/`.
+SurrealDB is the only server. Everything lives in `app/` and loads in this order: `schema.surql`, `lib/`, `scrapers/`, `ui/`, `api/`, `seed/`. Custom APIs are served at `/api/senai/<database>/<path>`; every emitted URL is prefixed with `fn::cfg::base()`.
 
-**UI flow.** Server holds all state; every selection is an `hx-get` returning HTML. First paint (`GET /`, `views/pages/home.js`) renders *placeholders* that load themselves in a chain: `/ui/areas` → `/ui/units` → `/ui/content` (each placeholder has `hx-trigger="load"`), so a cold scrape never blocks the shell. Responses update other regions with `hx-swap-oob`, announce selection with an `HX-Trigger: {"ctx": …}` header (client mirrors it into `html[data-uf|data-area|data-hue]`, and `app.js` drops stale chained responses by comparing against it), and push the shareable URL with `HX-Push-Url`.
+- `schema.surql`, `lib/db.surql`: tables `state area unit course` and `fn::db::*`, the only write path for scrapers.
+- `scrapers/`: `fn::scrape::<uf>::step($n) -> {next, done, note}` for the 19 active states, helpers in `_common.surql`. See `scrapers/STATUS.md` for per-state notes. Steps are small, idempotent and roll back on failure.
+- `lib/dispatch.surql`: `fn::scrape::step($uf, $n)` dispatcher, `crawl_state` (strikes/back-off), `crawl_secret`.
+- `api/`: `/health`, `/assets/*path` (file bucket on `app/assets`, needs `SURREAL_BUCKET_FOLDER_ALLOWLIST`), and the guarded routes `/crawl/:uf/:n`, `/crawl-skip/:uf/:n`, `/crawl-status`, `/crawl-report/:uf/:result`, `/retention/:days` (header `x-crawl-key`).
+- `ui/`: `fn::ui::*` render functions and the page/htmx routes (`/home`, `/main`, `/privacidade`, `/ui.css`); see `ui/README.md` and `ui/DESIGN.md`. The UI only reads tables.
+- `seed/states.surql`: the 27 states (19 active). `assets/`: flags and the single logo.
 
-**Views** (`src/views/`) are functions returning strings built with the escaping `html` tag (`views/html.js`). Use `raw()`/`jsonAttr()` only for trusted markup; everything else is escaped. Popover panels are Alpine `x-if` templates — they call `htmx.process($el)` on mount so `hx-*` inside them work.
+## Crawling
 
-**CSS.** UnoCSS *runtime* (`public/js/uno.js`, `presetWind4`, Tailwind-v4-compatible class names) generates utilities in the browser; theme colors/radii map to CSS variables in `public/css/aero.css`. That hand-written sheet is deliberately **unlayered and loaded after** the runtime's output, so its rules win ties — don't wrap it in `@layer`. `--brand-hue` is registered via `@property` so hue changes transition. The body is `un-cloak`ed until the runtime has styled it.
-
-**Adapters** (`src/adapters/*.js`) — one per active state, implementing `StateAdapter` (typedef in `src/shared/types.js`). Two shapes: bespoke scrapers (SP, SC) and the shared VTEX backend `createFuturoDigitalAdapter(uf, "UF|")` (`futuro-digital.js`; account `tewbhv`, cluster 137; states differ only by the `"UF|"` prefix on `productReferenceCode`).
-
-`src/adapters/registry.js`'s `ADAPTERS` is the source of truth for active-vs-coming-soon (checked against `KNOWN_ACTIVE` in `src/shared/state-meta.js` at dev startup). A state with metadata but no registry entry renders as "coming soon".
-
-**Critical invariant:** wire a state into `ADAPTERS` only after confirming real products **and** at least one offer with `IsAvailable: true` at the live source — a loading page is not enough. Rejected on this basis: AC, AM, AP, BA, PB, RJ, RR, SE. Use `/verify-adapter <uf>`.
-
-**Cache & persistence.** `KeyedAsyncCache` (`adapters/keyed-cache.js`): in-memory single-flight TTL per (state, área); never caches an empty result (treated as transient failure). `src/db/` persists last-known-good rows: `schema.surql` (tables, indexes, `fn::*` stored queries, applied with `OVERWRITE` on every boot), `surreal.js` (spawns `surreal start … surrealkv://…`, SurrealQL over `POST /rpc`, no SDK), `index.js` (reads/writes). `server/l1.js` adds a 5s response cache to GET handlers; `server/startup.js` does warm-up, proactive refresh and stale cleanup. Respect `catalogConcurrency`, `turmasConcurrency`, `warmupConcurrency` — don't hammer upstream sources.
-
-**Cursors.** Real `.cur`/`.ani` files in `public/assets/cursors/`; `.ani` decoded in the browser by `ani-cursor` (`public/js/cursors.js`), recolored per state via `data-ani="busy-red"` attributes the server emits (`views/cursor.js`).
+`crawl.sh` follows `next` until `done` (the last step prunes stale courses, so a cycle must finish). It runs at most 2 states at once, pauses with jitter, retries failed steps with back-off, calls `skip_task` after 3 failures of a queue-driven step (sc ce to mt sp), drops a state after 8 consecutive failed steps and skips it for 1/2/4/8 cycles, honours a time budget, and skips states finished within `CRAWL_MAX_AGE_S`. Respect upstream sites: never add parallelism inside a scraper.
 
 ## Adding a state
 
-1. Determine if it's the shared VTEX backend (a `"UF|"` prefix on `productReferenceCode` at the `tewbhv` account) or bespoke.
-2. VTEX: add `src/adapters/<uf>.js` calling `createFuturoDigitalAdapter(uf, "UF|")`. Bespoke: full `StateAdapter` impl.
-3. Verify real products + a real available turma **before** step 4.
-4. Register in `ADAPTERS` (`registry.js`), add cosmetics to `state-meta.js`, add the uf to `KNOWN_ACTIVE`.
+1. Write `fn::scrape::<uf>::step` in `app/scrapers/<uf>.surql` (persist only via `fn::db::*`; verify real products with open turmas first).
+2. Add it to `fn::scrape::active()` and the dispatcher in `lib/dispatch.surql`, and set `status: 'active'` in `seed/states.surql`.
+3. Expose the default área slug `tecnologia-da-informacao` when the source has a TI category.
 
-## Config
+## Gotchas (SurrealDB 3.3.4)
 
-`config/config.js` (gitignored; copy of `config/config.example.js`) — every field also settable via env var: port/host, SurrealDB binary/storage/bind/credentials/autostart, cache TTLs, fetch timeout/retries, concurrency limits, default unit, refresh interval.
+`DEFINE API` bodies must be string/bytes; no closures with `NOT`; use `!fn()` or parentheses; no try/catch (any error is HTTP 500); `string::slice(s, start, end)`; `load.sh` reports parse errors. Old JavaScript files may still exist in the working tree until removed; never extend them.
