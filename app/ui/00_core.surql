@@ -181,7 +181,7 @@ DEFINE FUNCTION OVERWRITE fn::ui::document($title: string, $body: string) -> str
 		'<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">',
 		'<title>', fn::ui::esc($title), '</title>',
 		'<meta name="description" content="Vagas em cursos presenciais do SENAI, por estado, área e unidade. Agregador independente e não oficial.">',
-		'<link rel="icon" href="', $b, '/assets/senai.svg" type="image/svg+xml">',
+		'<link rel="icon" href="', $b, '/assets/favicon.svg" type="image/svg+xml">',
 		'<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>',
 		'<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Montserrat:wght@700;800;900&display=swap">',
 		'<link rel="stylesheet" href="', $b, '/ui.css">',

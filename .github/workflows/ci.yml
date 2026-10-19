@@ -25,7 +25,7 @@ jobs:
           docker run -d --name senai-surreal -p 127.0.0.1:8000:8000 \
             -v "$PWD/app/assets:/assets:ro" -e SURREAL_BUCKET_FOLDER_ALLOWLIST=/assets \
             surrealdb/surrealdb:latest start --user root --pass root --bind 0.0.0.0:8000 \
-            --allow-net --allow-experimental files memory
+            --allow-net --allow-experimental files --log info memory
           for i in $(seq 1 60); do curl -sf http://127.0.0.1:8000/health >/dev/null && break; sleep 1; done
           curl -sf http://127.0.0.1:8000/health
 
