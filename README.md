@@ -61,7 +61,7 @@ Operational routes need the header `x-crawl-key`. The key is written to `app/.cr
 
 ### Stack rules
 
-Only HTMX, Alpine.js, UnoCSS, SurrealQL, SurrealDB and SurrealKV. No JavaScript runtime, package manager or build step, and no standalone JavaScript files. Tooling is POSIX `sh`, `curl`, `jq` and Docker. The full rules and the state-adding checklist are in [CLAUDE.md](CLAUDE.md).
+Only HTMX, Alpine.js, UnoCSS, SurrealQL, SurrealDB and SurrealKV. No JavaScript runtime, package manager or build step, and no standalone JavaScript files. Tooling is POSIX `sh`, `curl`, `jq` and Docker. State-adding rules and shared contracts are in [app/CONTRACT.md](app/CONTRACT.md).
 
 ### Where things go
 
